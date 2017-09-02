@@ -40,7 +40,7 @@
         border-right: 5px solid rgb(235, 235, 235);
         border-bottom: 5px solid rgb(235, 235, 235);
         border-top: 5px solid rgb(120, 120, 120);
-        
+
         border-radius: 100%;
         background-color: rgb(189, 215, 46);
       }
@@ -101,14 +101,15 @@
     <div class="spinner" id='spinner'></div>
     <div class="emscripten" id="status">Downloading...</div>
 
-	<div><input type="file" onchange="OnUploadFile(event)"/></div>
-	</div>
-	
+    <div>
+        <input type="file" onchange="OnUploadFile(event)"/>
+        <button onclick="OnSaveFile()">Save...</button>
+    </div>
+
     <div class="emscripten">
       <progress value="0" max="100" id="progress" hidden=1></progress>
     </div>
 
-    
     <div class="emscripten_border">
       <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()"></canvas>
     </div>
@@ -192,19 +193,36 @@
           if (text) Module.printErr('[post-exception status] ' + text);
         };
       };
-      
-	function OnUploadFile(event) {
+
+    function OnUploadFile(event) {
       var file = event.target.files[0];
       var reader = new FileReader();
       reader.onload = function(event) {
         var byteArray = new Uint8Array(event.target.result);
         var buf = Module._malloc(byteArray.length);
-	    Module.HEAPU8.set(byteArray, buf);
-	    Module.ccall('UploadImageFromJavascript', null, ['number', 'number'], [buf, byteArray.length]);
-	    Module._free(buf);
+        Module.HEAPU8.set(byteArray, buf);
+        Module.ccall('JSUploadImage', null, ['number', 'number'], [buf, byteArray.length]);
+        Module._free(buf);
       };
 
       reader.readAsArrayBuffer(file);
+    }
+
+    function OnSaveFile() {
+        console.log("OnSaveFile");
+
+        var num_bytes = Module.ccall('JSImageSavedSize', 'number', [], []);
+        console.log("OnSaveFile num_bytes=" + num_bytes);
+
+        var buf = Module._malloc(num_bytes);
+        Module.ccall('JSSaveImageToMemory', null, ['number'], [buf]);
+        var byteArray = new Uint8Array(num_bytes);
+        byteArray.set(Module.HEAPU8.subarray(buf, buf + num_bytes));
+        Module._free(buf);
+
+        var xhr = new XMLHttpRequest;
+        xhr.open("PUT", "saved.kip");
+        xhr.send(byteArray);
     }
 
     </script>
