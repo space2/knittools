@@ -211,17 +211,14 @@
     function OnSaveFile() {
         console.log("OnSaveFile");
 
+        var buf = Module.ccall('JSSaveImageToMemory', 'number', [], []);
         var num_bytes = Module.ccall('JSImageSavedSize', 'number', [], []);
         console.log("OnSaveFile num_bytes=" + num_bytes);
-
-        var buf = Module._malloc(num_bytes);
-        Module.ccall('JSSaveImageToMemory', null, ['number'], [buf]);
         var byteArray = new Uint8Array(num_bytes);
         byteArray.set(Module.HEAPU8.subarray(buf, buf + num_bytes));
-        Module._free(buf);
 
         var xhr = new XMLHttpRequest;
-        xhr.open("PUT", "saved.kip");
+        xhr.open("PUT", "saved.png");
         xhr.send(byteArray);
     }
 
