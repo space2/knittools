@@ -104,6 +104,7 @@
     <div>
         <input type="file" onchange="OnUploadFile(event)"/>
         <button onclick="OnSaveFile()">Save...</button>
+        <button onclick="OnSavePreviewFile()">Save preview...</button>
     </div>
 
     <div class="emscripten">
@@ -219,6 +220,20 @@
 
         var xhr = new XMLHttpRequest;
         xhr.open("PUT", "saved.png");
+        xhr.send(byteArray);
+    }
+
+    function OnSavePreviewFile() {
+        console.log("OnSavePreviewFile");
+
+        var buf = Module.ccall('JSSavePreviewToMemory', 'number', [], []);
+        var num_bytes = Module.ccall('JSPreviewSavedSize', 'number', [], []);
+        console.log("OnSaveFile num_bytes=" + num_bytes);
+        var byteArray = new Uint8Array(num_bytes);
+        byteArray.set(Module.HEAPU8.subarray(buf, buf + num_bytes));
+
+        var xhr = new XMLHttpRequest;
+        xhr.open("PUT", "saved_preview.jpeg");
         xhr.send(byteArray);
     }
 
