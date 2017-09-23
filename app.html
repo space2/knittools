@@ -95,16 +95,76 @@
         font-family: 'Lucida Console', Monaco, monospace;
         outline: none;
       }
+
+      /* The Modal (background) */
+        .modal {
+            display: none; /* Hidden by default */
+            float: left;
+            position: fixed; /* Stay in place */
+            z-index: 1; /* Sit on top */
+            left: 0;
+            top: 0;
+            width: 100%; /* Full width */
+            height: 100%; /* Full height */
+            overflow: auto; /* Enable scroll if needed */
+            background-color: rgb(0,0,0); /* Fallback color */
+            background-color: rgba(0,0,0,0.4); /* Black w/ opacity */
+        }
+
+        /* Modal Content/Box */
+        .modal-content {
+            background-color: #fefefe;
+            margin: 15% auto; /* 15% from the top and centered */
+            padding: 20px;
+            border: 1px solid #888;
+            width: 50%; /* Could be more or less, depending on screen size */
+        }
+
+        /* The Close Button */
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+        }
+
+        .close:hover,
+        .close:focus {
+            color: black;
+            text-decoration: none;
+            cursor: pointer;
+        }
+
     </style>
   </head>
   <body>
+    <!-- -------- Modal dialogs -------- -->
+
+    <!-- -------- Busy dialog -------- -->
+    <div id="mdl-busy" class="modal">
+      <div class="modal-content">
+        <p style="font-size: 48px;">Busy...</p>
+      </div>
+    </div>
+
+    <!-- -------- Upload image dialog -------- -->
+    <div id="mdl-upload" class="modal">
+      <div class="modal-content">
+        <span class="close">&times;</span>
+        <p>Upload your own image...</p>
+        <input id="upload-file" type="file" onchange="OnUploadFile(event)"/>
+      </div>
+    </div>
+
+    <!-- -------- Main content -------- -->
+
     <div class="spinner" id='spinner'></div>
     <div class="emscripten" id="status">Downloading...</div>
 
     <div>
-        <input type="file" onchange="OnUploadFile(event)"/>
         <button onclick="OnSaveFile()">Save...</button>
         <button onclick="OnSavePreviewFile()">Save preview...</button>
+        <button onclick="FlushELog()">Flush log...</button>
     </div>
 
     <div class="emscripten">
@@ -116,10 +176,21 @@
     </div>
     <textarea id="output" rows="8"></textarea>
 
+    <!-- -------- Scripts -------- -->
+
     <script type='text/javascript'>
+      // This user token should be edited by the server! This token will be sent back in every request
+      var userToken = "0xdeadbeef";
+      // This is the image id, it should also be edited by the server!
+      var imageId = 42;
+
       var statusElement = document.getElementById('status');
       var progressElement = document.getElementById('progress');
       var spinnerElement = document.getElementById('spinner');
+      var uploadFileInput = document.getElementById('upload-file');
+      var modal_upload = document.getElementById('mdl-upload');
+      var modal_upload_close = document.getElementsByClassName("close")[0];
+      var modal_busy = document.getElementById('mdl-busy');
 
       var Module = {
         preRun: [],
@@ -195,22 +266,77 @@
         };
       };
 
-    function OnUploadFile(event) {
-      var file = event.target.files[0];
-      var reader = new FileReader();
-      reader.onload = function(event) {
-        var byteArray = new Uint8Array(event.target.result);
-        var buf = Module._malloc(byteArray.length);
-        Module.HEAPU8.set(byteArray, buf);
-        Module.ccall('JSUploadImage', null, ['number', 'number'], [buf, byteArray.length]);
-        Module._free(buf);
-      };
-
-      reader.readAsArrayBuffer(file);
+    function ShowBusy() {
+        modal_busy.style.display = "block";
     }
 
+    function HideBusy() {
+        modal_busy.style.display = "none";
+    }
+
+    /** Download image content from server */
+    function DownloadImage() {
+        ShowBusy();
+        var xhr = new XMLHttpRequest;
+        xhr.responseType = 'arraybuffer';
+        xhr.onload = function() {
+            var byteArray = new Uint8Array(xhr.response);
+            var buf = Module._malloc(byteArray.length);
+            Module.HEAPU8.set(byteArray, buf);
+            Module.ccall('JSLoadImageFromMemory', null, ['number', 'number'], [buf, byteArray.length]);
+            Module._free(buf);
+            HideBusy();
+        };
+        xhr.onerror = function() {
+            HideBusy();
+        };
+        xhr.open("GET", "saved.png?userToken=" + userToken + "&imageId=" + imageId);
+        xhr.send();
+    }
+
+    /** Called when the user selected a file to upload */
+    function OnUploadFile(event) {
+        var file = event.target.files[0];
+        var reader = new FileReader();
+        reader.onload = function(event) {
+            var byteArray = new Uint8Array(event.target.result);
+            var buf = Module._malloc(byteArray.length);
+            Module.HEAPU8.set(byteArray, buf);
+            Module.ccall('JSUploadImage', null, ['number', 'number'], [buf, byteArray.length]);
+            Module._free(buf);
+            uploadFileInput.value = null; // Reset the file input (so it won't show the previous file name the next time)
+            CloseUploadDialog(); // Close the modal dialog
+        };
+        reader.readAsArrayBuffer(file);
+    }
+
+    // Called when the event logs should be flushed to the server
+    function OnELogFlush(ptr, bytes) {
+        console.log("OnELogFlush ptr=" + ptr + " bytes=" + bytes);
+        var byteArray = new Uint8Array(bytes);
+        byteArray.set(Module.HEAPU8.subarray(ptr, ptr + bytes));
+
+        var xhr = new XMLHttpRequest;
+        xhr.onload = function() {
+            Module._free(ptr);
+        };
+        xhr.onerror = function() {
+            Module._free(ptr);
+        };
+        xhr.open("PUT", "elog.bin?append=1&userToken=" + userToken + "&imageId=" + imageId);
+        xhr.send(byteArray);
+    }
+
+    // Placeholder function for manually flushing the event log.
+    // This should be done before the user exits the app/page
+    function FlushELog() {
+        Module.ccall('ELogFlush', null, [], []);
+    }
+
+    // Saves the image on the server
     function OnSaveFile() {
         console.log("OnSaveFile");
+        ShowBusy();
 
         var buf = Module.ccall('JSSaveImageToMemory', 'number', [], []);
         var num_bytes = Module.ccall('JSImageSavedSize', 'number', [], []);
@@ -219,10 +345,18 @@
         byteArray.set(Module.HEAPU8.subarray(buf, buf + num_bytes));
 
         var xhr = new XMLHttpRequest;
-        xhr.open("PUT", "saved.png");
+        xhr.open("PUT", "saved.png?append=0&userToken=" + userToken + "&imageId=" + imageId);
+        xhr.onload = function() {
+            HideBusy();
+        };
+        xhr.onerror = function() {
+            HideBusy();
+        };
         xhr.send(byteArray);
+        // FIXME: Add callback and handle error
     }
 
+    // Save the preview image on the server
     function OnSavePreviewFile() {
         console.log("OnSavePreviewFile");
 
@@ -233,8 +367,22 @@
         byteArray.set(Module.HEAPU8.subarray(buf, buf + num_bytes));
 
         var xhr = new XMLHttpRequest;
-        xhr.open("PUT", "saved_preview.jpeg");
+        xhr.open("PUT", "saved_preview.jpeg?append=0&userToken=" + userToken + "&imageId=" + imageId);
         xhr.send(byteArray);
+    }
+
+    // Show the image upload dialog
+    function ShowUploadDialog() {
+        modal_upload.style.display = "block";
+    }
+
+    // Close the image upload dialog
+    function CloseUploadDialog() {
+        modal_upload.style.display = "none";
+    }
+
+    modal_upload_close.onclick = function() {
+        CloseUploadDialog();
     }
 
     </script>
